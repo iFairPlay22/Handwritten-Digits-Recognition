@@ -40,7 +40,7 @@ from tqdm import tqdm
 import numpy as np
 import theano
 import theano.tensor as T
-from theano.tensor.nnet import conv
+from theano.tensor.nnet import conv2d
 from theano.tensor.nnet import softmax
 from theano.tensor import shared_randomstreams
 from theano.tensor.signal.pool import pool_2d
@@ -67,7 +67,7 @@ else:
     print("Running with a CPU.  If this is not desired, then the modify network3.py to set the GPU flag to True.")
 
 #### Load the MNIST data
-def load_data_shared(filename="../data/mnist.pkl.gz"):
+def load_data(filename="../data/mnist.pkl.gz"):
 
     # Ouverture du fichier en mode lecture
     f = gzip.open(filename, 'rb')
@@ -81,21 +81,24 @@ def load_data_shared(filename="../data/mnist.pkl.gz"):
     n_training_data, n_validation_data, n_test_data = len(training_data[0]), len(validation_data[0]), len(test_data[0])
     print("Datasets formatted : {0} images for training / {1} images for validation / {2} images for test.".format(n_training_data, n_validation_data, n_test_data))
 
+    return training_data, validation_data, test_data
+
+def share_data(training_data, validation_data, test_data, n_training_data, n_validation_data, n_test_data):
     
-    def shared(data):
+    def shared(data, size):
         """Place the data into shared variables.  This allows Theano to copy
         the data to the GPU, if one is available.
 
         """
 
         # On transforme les données en format Theano pour le traitement GPU
-        shared_x = theano.shared(np.asarray(data[0], dtype=theano.config.floatX), borrow=True)
-        shared_y = theano.shared(np.asarray(data[1], dtype=theano.config.floatX), borrow=True)
+        shared_x = theano.shared(np.asarray(data[0][:size], dtype=theano.config.floatX), borrow=True)
+        shared_y = theano.shared(np.asarray(data[1][:size], dtype=theano.config.floatX), borrow=True)
 
         # On retourne les données
         return shared_x, T.cast(shared_y, "int32")
 
-    return [shared(training_data), shared(validation_data), shared(test_data)], n_training_data, n_validation_data, n_test_data
+    return [shared(training_data, n_training_data), shared(validation_data, n_validation_data), shared(test_data, n_test_data)]
 
 #### Main class used to construct and train networks
 class Network(object):
@@ -118,8 +121,7 @@ class Network(object):
         init_layer.set_inpt(self.x, self.x, self.batch_size)
         for j in range(1, len(self.layers)):
             prev_layer, layer  = self.layers[j-1], self.layers[j]
-            layer.set_inpt(
-                prev_layer.output, prev_layer.output_dropout, self.batch_size)
+            layer.set_inpt(prev_layer.output, prev_layer.output_dropout, self.batch_size)
         self.output = self.layers[-1].output
         self.output_dropout = self.layers[-1].output_dropout
 
@@ -136,9 +138,9 @@ class Network(object):
         test_x, test_y = test_data
 
         # On compte le nombre de batchs
-        num_training_batches = size(training_data) // batch_size
-        num_validation_batches = size(validation_data) // batch_size
-        num_test_batches = size(test_data) // batch_size
+        num_training_batches = int(size(training_data) / batch_size)
+        num_validation_batches = int(size(validation_data) / batch_size)
+        num_test_batches = int(size(test_data) / batch_size)
 
         # Définition des varibles pour le calcul du gradient
         l2_norm_squared = sum([(layer.w**2).sum() for layer in self.layers])
@@ -151,36 +153,29 @@ class Network(object):
         train_mb = theano.function(
             [i], cost, updates=updates,
             givens={
-                self.x:
-                training_x[i*self.batch_size: (i+1)*self.batch_size],
-                self.y:
-                training_y[i*self.batch_size: (i+1)*self.batch_size]
+                self.x: training_x[i*self.batch_size: (i+1)*self.batch_size],
+                self.y: training_y[i*self.batch_size: (i+1)*self.batch_size]
             })
         
         # Calcul de l'accuracy pour les dataset de validation et de test
         validate_mb_accuracy = theano.function(
             [i], self.layers[-1].accuracy(self.y),
             givens={
-                self.x:
-                validation_x[i*self.batch_size: (i+1)*self.batch_size],
-                self.y:
-                validation_y[i*self.batch_size: (i+1)*self.batch_size]
+                self.x: validation_x[i*self.batch_size: (i+1)*self.batch_size],
+                self.y: validation_y[i*self.batch_size: (i+1)*self.batch_size]
             })
         test_mb_accuracy = theano.function(
             [i], self.layers[-1].accuracy(self.y),
             givens={
-                self.x:
-                test_x[i*self.batch_size: (i+1)*self.batch_size],
-                self.y:
-                test_y[i*self.batch_size: (i+1)*self.batch_size]
+                self.x: test_x[i*self.batch_size: (i+1)*self.batch_size],
+                self.y: test_y[i*self.batch_size: (i+1)*self.batch_size]
             })
         
         # Fonction de prédiction
         self.test_mb_predictions = theano.function(
             [i], self.layers[-1].y_out,
             givens={
-                self.x:
-                test_x[i*self.batch_size: (i+1)*self.batch_size]
+                self.x: test_x[i*self.batch_size: (i+1)*self.batch_size]
             })
 
         # On stocke les meilleures performances
@@ -236,7 +231,7 @@ class Network(object):
             # On affiche les résultats de l'époch
             if epoch % 5 == 0 or epoch == epochs:
                 print("Epoch {}".format(epoch))
-                print("- Training cost {:.2%}".format(training_cost))
+                print("- Training cost {:.2}".format(training_cost))
                 print("- Validation accuracy {:.2%}".format(validation_accuracy))
                 print("- Test accuracy {:.2%}".format(test_accuracy))
 
@@ -293,11 +288,11 @@ class ConvPoolLayer(object):
 
     def set_inpt(self, inpt, inpt_dropout, batch_size):
         self.inpt = inpt.reshape(self.image_shape)
-        conv_out = conv.conv2d(
+        conv_out = conv2d(
             input=self.inpt, filters=self.w, filter_shape=self.filter_shape,
-            image_shape=self.image_shape)
+            input_shape=self.image_shape)
         pooled_out = pool_2d(
-            input=conv_out, ds=self.poolsize, ignore_border=True)
+            input=conv_out, ws=self.poolsize, ignore_border=True)
         self.output = self.activation_fn(
             pooled_out + self.b.dimshuffle('x', 0, 'x', 'x'))
         self.output_dropout = self.output # no dropout in the convolutional layers

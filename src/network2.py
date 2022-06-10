@@ -149,7 +149,7 @@ class Network(object):
         # On renvoie la sortie de la derniere couche
         return a
 
-    def SGD(self, training_data : list, evaluation_data : list, epochs : int, batch_size : int, eta : float, lmbda  : float, accPlot : SmartPlot, costPlot : SmartPlot, color : str,
+    def SGD(self, training_data : list, evaluation_data : list, epochs : int, batch_size : int, eta : float, lmbda  : float, trainingCostPlot : SmartPlot, trainingAccuracyPlot : SmartPlot, evaluationCostPlot : SmartPlot, evaluationAccuracyPlot : SmartPlot, color : str,
             monitor_evaluation_cost=False,
             monitor_evaluation_accuracy=False,
             monitor_training_cost=False,
@@ -201,25 +201,25 @@ class Network(object):
             if monitor_training_cost:
                 tr_cost = self.total_cost(training_data, lmbda, convert=False)
                 training_cost.append(tr_cost)
-                costPlot.addPoint("Network {}".format(self.id), color, tr_cost)
+                trainingCostPlot.addPoint("Network {}".format(self.id), color, tr_cost)
 
             # On calcule la précision sur le jeu de données d'entrainement
             if monitor_training_accuracy:
                 tr_accuracy = self.accuracy(training_data, convert=True)
                 training_accuracy.append(tr_accuracy)
-                accPlot.addPoint("Network {}".format(self.id), color, tr_accuracy * 100 / n_training_data)
+                trainingAccuracyPlot.addPoint("Network {}".format(self.id), color, tr_accuracy * 100 / n_training_data)
 
             # On calcule le cout sur le jeu de données de test / évaluation
             if monitor_evaluation_cost:
                 ev_cost = self.total_cost(evaluation_data, lmbda, convert=True)
                 evaluation_cost.append(ev_cost)
-                costPlot.addPoint("Network {}".format(self.id), color, ev_cost)
+                evaluationCostPlot.addPoint("Network {}".format(self.id), color, ev_cost)
 
             # On calcule la précision sur le jeu de test / évaluation
             if monitor_evaluation_accuracy:
                 ev_accuracy = self.accuracy(evaluation_data, convert=False)
                 evaluation_accuracy.append(ev_accuracy)
-                accPlot.addPoint("Network {}".format(self.id), color, ev_accuracy * 100 / n_evaluation_data)
+                evaluationAccuracyPlot.addPoint("Network {}".format(self.id), color, ev_accuracy * 100 / n_evaluation_data)
 
             if j % 5 == 0 or j == epochs:
                 print("Epoch %s training complete" % j)
