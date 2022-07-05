@@ -1,4 +1,4 @@
-# Handwritten Digits Recognition
+# Handwritten Digits Recognition 
 
 ## Contexte
 
